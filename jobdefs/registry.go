@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin/binding"
 )
 
-func bindSubJSON[T any](raw json.RawMessage) (*T, error) {
+func bindJobJSON[T any](raw json.RawMessage) (*T, error) {
 	var v T
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return nil, err
@@ -25,7 +25,7 @@ var JobBuilders = map[string]domain.JobBuilder{
 }
 
 func buildFetchJob(payload json.RawMessage) (domain.Job, error) {
-	req, err := bindSubJSON[FetchJobData](payload)
+	req, err := bindJobJSON[FetchJobData](payload)
 
 	if err != nil {
 		return nil, err

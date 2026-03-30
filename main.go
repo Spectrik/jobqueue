@@ -16,7 +16,9 @@ func main() {
 	h := api.NewJobHandler(p)
 
 	r.POST("/job", h.CreateJob)
+	r.DELETE("/job/:id", h.CancelJob)
 	r.GET("/job/", h.ListJobs)
 	r.GET("/job/:id", h.GetJob)
+	r.GET("/metrics", api.NewMetricsHandler(s).GetMetrics)
 	r.Run()
 }

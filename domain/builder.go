@@ -12,7 +12,7 @@ func NewJobResult(id string) *JobResult {
 	return &JobResult{
 		JobID: id,
 		Status: JobStatusPending,
-		CreatedAt: time.Now(),
+		CreatedAt: time.Now().UTC(),
 	}
 }
 

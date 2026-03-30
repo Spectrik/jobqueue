@@ -28,16 +28,28 @@ func (s *MemoryStorage) Save(r *domain.JobResult) error {
 	return nil
 }
 
-func (s *MemoryStorage) Get(jobID string) (*domain.JobResult, error) {
+func (s *MemoryStorage) Get(jobID string) (domain.JobResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	r, ok := s.jobs[jobID]
 	if !ok {
-		return nil, ErrJobNotFound
+		return domain.JobResult{}, ErrJobNotFound
 	}
 
-	return r, nil
+	return *r, nil
+}
+
+func (s *MemoryStorage) List() ([]domain.JobResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	results := make([]domain.JobResult, 0, len(s.jobs))
+	for _, r := range s.jobs {
+		results = append(results, *r)
+	}
+
+	return results, nil
 }
 
 func (s *MemoryStorage) Update(jobID string, fn func(*domain.JobResult) error) error {

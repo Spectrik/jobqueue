@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"example.com/jobqueue/domain"
 	"example.com/jobqueue/jobdefs"
 	"example.com/jobqueue/processor"
+	"example.com/jobqueue/storage"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,8 +21,16 @@ type JobHandler struct {
 }
 
 func (h *JobHandler) ListJobs(c *gin.Context) {
-	// Implementation for listing jobs
+	jobs, err := h.jp.Storage.List()
+	if err != nil {
+		c.JSON(503, gin.H{"error": err.Error()})
+		return
+	}
 
+	c.JSON(200, gin.H {
+		"message": "Jobs fetched successfully",
+		"jobs": domain.ToJobResponseList(jobs),
+	})
 }
 
 func (h *JobHandler) CreateJob(c *gin.Context) {
@@ -50,7 +60,7 @@ func (h *JobHandler) CreateJob(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{
-		"message": "pong",
+		"message": "Job created successfully",
 		"uuid": uuid,
 	})
 }
@@ -64,11 +74,39 @@ func (h *JobHandler) GetJob(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{
-		"message": "pong",
-		"status": result.Status,
-	})
+		"message": "Job fetched successfully",
+		"job": domain.ToJobResponse(result)})
+}
+
+func (h *JobHandler) CancelJob(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(400, gin.H{"error": "Job ID is required"})
+		return
+	}
+
+	err := h.jp.CancelJob(c.Param("id"))
+	if err != nil {
+		c.JSON(404, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "Job cancellation requested"})
 }
 
 func NewJobHandler(jp *processor.JobProcessor) *JobHandler {
 	return &JobHandler{jp: jp}
+}
+
+type MetricsHandler struct {
+	s storage.Storage
+}
+
+func NewMetricsHandler(s storage.Storage) *MetricsHandler {
+	return &MetricsHandler{s: s}
+}
+
+func (h *MetricsHandler) GetMetrics(c *gin.Context) {
+	// Implement metrics retrieval logic here
+	c.JSON(200, gin.H{"message": "Metrics endpoint - to be implemented"})
 }

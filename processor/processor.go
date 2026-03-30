@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"example.com/jobqueue/domain"
@@ -21,15 +22,23 @@ type QueuedJob struct {
 type JobProcessor struct {
 	jobs    chan QueuedJob
 	Storage storage.Storage
+
+	mu 		sync.Mutex
+	cancels map[string]context.CancelFunc
 }
 
-func (p JobProcessor) AddJob(job domain.Job) (string, error) {
+func (p *JobProcessor) AddJob(job domain.Job) (string, error) {
 	job_uuid := uuid.NewString()
 	entry := domain.NewJobResult(job_uuid)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	p.cancels[job_uuid] = cancel
 
-	p.Storage.Save(entry)
 	select {
-		case p.jobs <- QueuedJob{id: job_uuid, job: job, ctx: context.Background()}:
+		case p.jobs <- QueuedJob{id: job_uuid, job: job, ctx: ctx}:
+			if err := p.Storage.Save(entry); err != nil {
+				return "", err
+			}
+
 			return job_uuid, nil
 		default:
 			return "", ErrQueueFull
@@ -40,6 +49,7 @@ func NewJobProcessor(buffer, workers int, storage storage.Storage) *JobProcessor
 	p := &JobProcessor{
 		jobs: make(chan QueuedJob, buffer),
 		Storage: storage,
+		cancels: make(map[string]context.CancelFunc),
 	}
 
 	for range workers {
@@ -52,9 +62,8 @@ func NewJobProcessor(buffer, workers int, storage storage.Storage) *JobProcessor
 func (p *JobProcessor) worker() {
 	for envelope := range p.jobs {
 		func() {
-			ctx, cancel := context.WithTimeout(envelope.ctx, 120*time.Second)
 			now := time.Now().UTC()
-			defer cancel()
+			defer p.cancels[envelope.id]()
 
 			p.Storage.Update(envelope.id, func(r *domain.JobResult) error {
 				r.Status = domain.JobStatusRunning
@@ -64,15 +73,27 @@ func (p *JobProcessor) worker() {
 				return nil
 			})
 
-			out, err := envelope.job.Execute(ctx)
+			out, err := envelope.job.Execute(envelope.ctx)
 			now = time.Now().UTC()
 			if err != nil {
-				p.Storage.Update(envelope.id, func(r *domain.JobResult) error {
+				if errors.Is(err, context.Canceled) {
+					p.Storage.Update(envelope.id, func(r *domain.JobResult) error {
+						r.Status = domain.JobStatusCancelled
+						now := time.Now().UTC()
+						r.FinishedAt = &now
+						return nil
+					})
+					return
+				}
+
+				if updateErr := p.Storage.Update(envelope.id, func(r *domain.JobResult) error {
 					r.Status = domain.JobStatusFailed
 					r.FinishedAt = &now
-					r.ErrorMessage = err.Error()
+					r.Error = err
 					return nil
-				})
+				}); updateErr != nil {
+					// TODO: log error
+				}
 			} else {
 				p.Storage.Update(envelope.id, func(r *domain.JobResult) error {
 					r.Status = domain.JobStatusCompleted
@@ -83,4 +104,24 @@ func (p *JobProcessor) worker() {
 			}
 		}()
 	}
+}
+
+func (p *JobProcessor) CancelJob(jobID string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	cancel, ok := p.cancels[jobID]
+	if !ok {
+		return errors.New("Job not found or already completed")
+	}
+
+	cancel()
+	delete(p.cancels, jobID)
+
+	return p.Storage.Update(jobID, func(r *domain.JobResult) error {
+		r.Status = domain.JobStatusCancelled
+		now := time.Now().UTC()
+		r.FinishedAt = &now
+		return nil
+	})
 }

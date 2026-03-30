@@ -16,7 +16,7 @@ type FetchJob struct {
 func (j FetchJob) Execute(ctx context.Context) (string, error) {
 	select {
 		case <-time.After(60 * time.Second):
-			return "nil", nil
+			return "Fetched.", nil
 		case <-ctx.Done():
 			fmt.Print(ctx.Deadline())
 			fmt.Println("TIMEOUT!")
